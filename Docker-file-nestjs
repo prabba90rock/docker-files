@@ -1,0 +1,24 @@
+FROM node:14.18.0-alpine3.12
+
+RUN apk add --no-cache \
+      make \
+      g++ \
+      chromium \
+      nss \
+      freetype \
+      harfbuzz \
+      ca-certificates \
+      ttf-freefont
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+    
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+#RUN export NODE_OPTIONS="--max_old_space_size=8000"
+RUN npm run build
+
+EXPOSE 3000
+
+CMD [ "node", "./dist/main" ]

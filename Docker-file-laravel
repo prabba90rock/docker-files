@@ -1,0 +1,64 @@
+FROM composer:2.1.5 as vendor
+COPY database/ ./database/
+COPY composer*.json ./
+RUN composer install \
+    --ignore-platform-req=ext-gd \
+    --no-interaction \
+    --no-plugins \
+    --no-scripts \
+    --prefer-dist
+
+FROM php:8.0.9-fpm-alpine
+COPY --from=vendor /app/vendor/ /var/www/html/vendor/
+RUN apk add --virtual wget \
+  curl \
+  git \
+  grep \
+  build-base \
+  make \
+  automake \
+  autoconf \
+  g++ \
+  supervisor \
+  postgresql-dev\
+  libmcrypt-dev \
+  libxml2-dev \
+  libpng \
+  libpng-dev \
+  libwebp-dev \
+  freetype-dev \
+  libjpeg-turbo-dev \
+  icu-dev \
+  icu-libs \
+  zlib-dev \
+  libzip-dev \
+  libressl-dev
+  
+RUN docker-php-ext-configure \
+    gd --enable-gd --with-freetype --with-jpeg --with-webp
+        
+RUN docker-php-ext-install pdo pdo_pgsql gd
+
+RUN rm /var/cache/apk/*
+
+COPY . /var/www/html/
+COPY .env /var/www/html/.env
+COPY server-ca.pem /var/www/html/server-ca.pem
+RUN touch /var/www/html/storage/logs/laravel.log
+RUN chmod -R 777 /var/www/html/storage/
+RUN chmod -R 777 /var/www/html/bootstrap/cache/
+RUN mkdir -p /root/.postgresql
+RUN ln -s /etc/ssl/certs/ca-certificates.crt /root/.postgresql/root.crt
+
+RUN perl -pi -e 's#^(?=access\.log\b)#;#' /usr/local/etc/php-fpm.d/docker.conf
+
+RUN echo '* * * * * cd /var/www/html/ && php artisan schedule:run >> /dev/null 2>&1' > /etc/crontabs/root
+
+RUN wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 \
+    && mv cloud_sql_proxy.linux.amd64 cloud_sql_proxy \
+    && chmod +x cloud_sql_proxy
+
+COPY supervisord.conf /etc/supervisord.conf
+COPY supervisord-serve.conf /etc/supervisor/conf.d/supervisord-serve.conf
+RUN php artisan passport:keys
+ENTRYPOINT ["/usr/bin/supervisord", "-n", "-c", "/etc/supervisord.conf"]
